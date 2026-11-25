@@ -56,6 +56,7 @@ def main() -> None:
         expect(result.get_by_role("status")).to_have_text(
             "Automation completed successfully"
         )
+        expect(page.locator("#workflow-count")).to_have_text("7 of 7 steps complete")
         for value in (options.employee_id, first_name, last_name):
             expect(result.get_by_text(value, exact=True)).to_be_visible()
         expect(page.get_by_text("Sign out", exact=True)).to_have_class("completed")

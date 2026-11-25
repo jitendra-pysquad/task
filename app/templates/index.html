@@ -64,7 +64,6 @@
           </fieldset>
           <div class="form-actions">
             <button class="button primary" type="submit">Run automation</button>
-            <p id="run-progress" class="progress" role="status"></p>
           </div>
         </form>
       </section>
@@ -94,7 +93,7 @@
             </dl>
           {% endif %}
           {% if run_id and result.employee and not result.rows %}
-            <form class="retry-form" method="post" action="{{ url_for('retry_export', retry_id=run_id) }}" id="automation-form">
+            <form class="retry-form" method="post" action="{{ url_for('retry_export', retry_id=run_id) }}" id="automation-form" data-export-only>
               <input type="hidden" name="csrf" value="{{ csrf }}">
               <fieldset>
                 <legend>Retry employee list export</legend>
@@ -106,7 +105,6 @@
               </fieldset>
               <div class="form-actions">
                 <button class="button primary" type="submit">Retry export</button>
-                <p id="run-progress" class="progress" role="status"></p>
               </div>
             </form>
           {% endif %}
@@ -120,19 +118,30 @@
       </section>
       {% endif %}
 
-      <aside class="card workflow" aria-labelledby="workflow-title">
+      {% set completed = result.steps if result else [] %}
+      {% set completed_count = visible_steps | select('in', completed) | list | length %}
+      <aside class="card workflow" aria-labelledby="workflow-title"
+             data-workflow-id="{{ workflow_id }}"
+             data-progress-url="{{ url_for('workflow_progress', workflow_id=workflow_id) }}">
         <div class="card-header">
           <h2 id="workflow-title">Workflow</h2>
-          <p>{% if result %}Completed steps for this run.{% else %}Steps the browser will perform.{% endif %}</p>
+          <p id="workflow-status" role="status" aria-atomic="true">
+            {% if result and result.successful %}Workflow complete{% elif result %}Run finished with errors{% else %}Ready to run{% endif %}
+          </p>
         </div>
-        <ol>
-          {% set steps = result.steps if result else [
-            'Open OrangeHRM', 'Sign in', 'Open PIM', 'Add employee',
-            'Verify employee details', 'Extract employee list', 'Sign out'
-          ] %}
-          {% for step in steps %}<li {% if result %}class="completed"{% endif %}>{{ step }}</li>{% endfor %}
+        <div class="workflow-meter">
+          <progress id="workflow-bar" value="{{ completed_count }}" max="{{ visible_steps | length }}"
+                    aria-label="Completed automation steps"></progress>
+          <span id="workflow-count">{{ completed_count }} of {{ visible_steps | length }} steps complete</span>
+        </div>
+        <ol role="list">
+          {% for step, active_text in workflow_steps.items() %}
+          <li data-step="{{ step }}" data-active-text="{{ active_text }}"
+              {% if step not in export_only_steps %}data-create-only{% endif %}
+              {% if step not in visible_steps %}hidden{% endif %}
+              {% if step in completed %}class="completed"{% elif result and step == result.failed_step %}class="failed"{% endif %}>{{ step }}</li>
+          {% endfor %}
         </ol>
-        {% if result and not result.steps %}<p class="workflow-empty">No steps completed.</p>{% endif %}
       </aside>
     </div>
 

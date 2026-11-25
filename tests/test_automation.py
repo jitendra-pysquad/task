@@ -23,7 +23,11 @@ class ExportRecoveryTests(unittest.TestCase):
             ) as read,
             self.assertLogs("uvicorn.error.orangehrm"),
         ):
-            self.assertEqual(site.extract_employee_list(self.employee), output)
+            on_retry = Mock()
+            self.assertEqual(
+                site.extract_employee_list(self.employee, on_retry), output
+            )
+        on_retry.assert_called_once()
         self.assertEqual(read.call_count, 2)
         page.reload.assert_called_once_with(wait_until="commit")
 
@@ -35,10 +39,38 @@ class ExportRecoveryTests(unittest.TestCase):
             patch("app.automation.OrangeHrmPage") as browser_page,
         ):
             site = browser_page.return_value
-            site.extract_employee_list.return_value = (["Id"], [["9001"]])
-            result = run_automation(request, Settings())
+
+            def extract(employee, on_retry):
+                on_retry()
+                return ["Id"], [["9001"]]
+
+            site.extract_employee_list.side_effect = extract
+            updates = []
+            result = run_automation(request, Settings(), updates.append)
         self.assertTrue(result.successful)
         site.add_employee.assert_not_called()
-        site.extract_employee_list.assert_called_once_with(self.employee)
+        self.assertEqual(site.extract_employee_list.call_args.args, (self.employee,))
+        self.assertIn(
+            "Employee verified. Retrying export…", [u.message for u in updates]
+        )
+        self.assertEqual(updates[-1].completed, tuple(result.steps))
         site.logout.assert_called_once()
         launch.return_value.close.assert_called_once()
+
+    def test_failed_export_stays_marked_during_sign_out(self) -> None:
+        request = RunInput("user", "password", self.employee, export_only=True)
+        with (
+            patch("app.automation.sync_playwright"),
+            patch("app.automation.launch_browser"),
+            patch("app.automation.OrangeHrmPage") as browser_page,
+            self.assertLogs("uvicorn.error.orangehrm"),
+        ):
+            browser_page.return_value.extract_employee_list.side_effect = (
+                EmployeeListChanged("Count changed")
+            )
+            updates = []
+            result = run_automation(request, Settings(), updates.append)
+        sign_out = next(update for update in updates if update.active == "Sign out")
+        self.assertEqual(sign_out.failed, "Extract employee list")
+        self.assertEqual(result.failed_step, "Extract employee list")
+        self.assertIn("Sign out", updates[-1].completed)

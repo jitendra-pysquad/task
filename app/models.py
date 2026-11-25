@@ -1,7 +1,7 @@
 """Validated form input and automation result types."""
 
 from dataclasses import dataclass, field
-from typing import Mapping
+from typing import Callable, Mapping
 
 FIELD_LIMITS = {
     "username": 255,
@@ -17,6 +17,31 @@ FIELD_LABELS = {
     "last_name": "Last name",
     "employee_id": "Employee ID",
 }
+WORKFLOW_STEPS = {
+    "Open OrangeHRM": "Opening OrangeHRM",
+    "Sign in": "Signing in",
+    "Open PIM": "Opening PIM",
+    "Add employee": "Adding employee",
+    "Verify employee details": "Verifying employee details",
+    "Extract employee list": "Extracting employee list",
+    "Sign out": "Signing out",
+}
+EXPORT_ONLY_STEPS = tuple(
+    step
+    for step in WORKFLOW_STEPS
+    if step not in {"Add employee", "Verify employee details"}
+)
+
+
+@dataclass(frozen=True)
+class WorkflowProgress:
+    completed: tuple[str, ...] = ()
+    active: str | None = None
+    failed: str | None = None
+    message: str | None = None
+
+
+ProgressCallback = Callable[[WorkflowProgress], None]
 
 
 @dataclass(frozen=True)
@@ -41,6 +66,8 @@ class RunResult:
     columns: list[str] = field(default_factory=list)
     rows: list[list[str]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    failed_step: str | None = None
+    export_only: bool = False
 
     @property
     def successful(self) -> bool:

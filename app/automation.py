@@ -2,13 +2,14 @@
 
 import logging
 import re
+from typing import Callable
 from urllib.parse import urlsplit
 
 from playwright.sync_api import Browser, Page, Playwright, expect, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
 from .config import DEMO_URL, Settings
-from .models import Employee, RunInput, RunResult
+from .models import Employee, ProgressCallback, RunInput, RunResult, WorkflowProgress
 
 LOGGER = logging.getLogger("uvicorn.error.orangehrm")
 PROFILE_URL = re.compile(r"/pim/viewPersonalDetails/empNumber/\d+(?:[/?#]|$)")
@@ -60,7 +61,8 @@ class OrangeHrmPage:
         self.pim.or_(error).first.wait_for()
         if error.is_visible():
             raise WorkflowError(
-                "Invalid username or password, Please check your credentials and try again"
+                "Invalid username or password, Please check your credentials "
+                "and try again"
             )
 
     def open_pim(self) -> None:
@@ -82,7 +84,8 @@ class OrangeHrmPage:
             if field_error.filter(has_text=re.compile(r"already exists", re.I)).count():
                 raise WorkflowError("That employee ID already exists. Use a unique ID.")
             raise WorkflowError(
-                "Invalid username or password, Please check your credentials and try again"
+                "Invalid username or password, Please check your credentials "
+                "and try again"
             )
         self.page.wait_for_url(PROFILE_URL)
 
@@ -100,7 +103,7 @@ class OrangeHrmPage:
         )
 
     def extract_employee_list(
-        self, employee: Employee
+        self, employee: Employee, on_retry: Callable[[], None] | None = None
     ) -> tuple[list[str], list[list[str]]]:
         self.page.get_by_role("link", name="Employee List", exact=True).click()
         for attempt in range(1, EXPORT_ATTEMPTS):
@@ -113,6 +116,8 @@ class OrangeHrmPage:
                     EXPORT_ATTEMPTS,
                     error,
                 )
+                if on_retry:
+                    on_retry()
                 self.page.reload(wait_until="commit")
         return self.read_employee_list(employee)
 
@@ -229,18 +234,40 @@ def launch_browser(playwright: Playwright, settings: Settings) -> Browser:
     )
 
 
-def run_automation(request: RunInput, settings: Settings) -> RunResult:
+def run_automation(
+    request: RunInput, settings: Settings, on_progress: ProgressCallback | None = None
+) -> RunResult:
     """Execute one isolated run and always release browser resources."""
-    result = RunResult(employee=request.employee if request.export_only else None)
+    result = RunResult(
+        employee=request.employee if request.export_only else None,
+        export_only=request.export_only,
+    )
     action = "Launch browser"
     site: OrangeHrmPage | None = None
     authenticated = False
 
+    def publish(active: str | None = None, message: str | None = None) -> None:
+        if on_progress:
+            on_progress(
+                WorkflowProgress(
+                    tuple(result.steps), active, result.failed_step, message
+                )
+            )
+
+    def begin(step: str) -> str:
+        publish(step)
+        return step
+
     def completed(step: str) -> None:
         result.steps.append(step)
         LOGGER.info("Completed step: %s", step)
+        publish()
+
+    def retry_export() -> None:
+        publish("Extract employee list", "Employee verified. Retrying export…")
 
     try:
+        publish(message="Starting browser…")
         with sync_playwright() as playwright:
             browser = launch_browser(playwright, settings)
             try:
@@ -248,34 +275,39 @@ def run_automation(request: RunInput, settings: Settings) -> RunResult:
                 try:
                     site = OrangeHrmPage(context.new_page(), settings.timeout_ms)
                     try:
-                        action = "Open OrangeHRM"
+                        action = begin("Open OrangeHRM")
                         site.open()
                         completed(action)
-                        action = "Sign in"
+                        action = begin("Sign in")
                         site.login(request)
                         authenticated = True
                         completed(action)
-                        action = "Open PIM"
+                        action = begin("Open PIM")
                         site.open_pim()
                         completed(action)
                         if not request.export_only:
-                            action = "Add employee"
+                            action = begin("Add employee")
                             site.add_employee(request.employee)
                             completed(action)
-                            action = "Verify employee details"
+                            action = begin("Verify employee details")
                             result.employee = site.verify_employee(request.employee)
                             completed(action)
-                        action = "Extract employee list"
+                        action = begin("Extract employee list")
                         result.columns, result.rows = site.extract_employee_list(
-                            request.employee
+                            request.employee, on_retry=retry_export
                         )
                         completed(action)
+                    except Exception:
+                        result.failed_step = action
+                        raise
                     finally:
                         if authenticated or site.user_menu.is_visible():
                             try:
+                                publish("Sign out")
                                 site.logout()
                                 completed("Sign out")
                             except (PlaywrightError, AssertionError) as error:
+                                result.failed_step = result.failed_step or "Sign out"
                                 LOGGER.warning(
                                     "Sign out failed (%s)", type(error).__name__
                                 )
@@ -305,4 +337,7 @@ def run_automation(request: RunInput, settings: Settings) -> RunResult:
             "The save may have reached OrangeHRM. "
             "Check the employee ID in PIM before retrying."
         )
+    if result.errors and not result.failed_step and action not in result.steps:
+        result.failed_step = "Open OrangeHRM" if action == "Launch browser" else action
+    publish()
     return result

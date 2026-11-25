@@ -22,7 +22,7 @@ Both pages of the assignment PDF were reviewed. The PDF contains the written req
 
 ## Recorded results
 
-Verified on 25 November 2026 using Python 3.10.12 and installed Google Chrome in headless mode. The live dashboard created **Riley Demo** with ID **RPA09BDB24**, matched its three fields in the saved profile and the extracted list, and verified the return to login after sign-out. PIM reported **143 records across three pages** (50, 50, and 43). The downloaded CSV contains 143 records and the exact employee row once. Refreshing the dashboard result reloaded the existing run.
+Verified on 25 November 2026 using Python 3.10.12 and installed Google Chrome in headless mode. The live dashboard created **Riley Demo** with ID **RPA8DAD678**, matched its three fields in the saved profile and extracted list, and showed all seven workflow steps complete after sign-out. PIM reported **144 records across three pages** (50, 50, and 44). The downloaded CSV contains 144 records and the exact employee row once. Refreshing the dashboard result reloaded the existing run.
 
 - [Before execution](../evidence/dashboard-before.png)
 - [After successful execution](../evidence/dashboard-after.png)
@@ -30,7 +30,7 @@ Verified on 25 November 2026 using Python 3.10.12 and installed Google Chrome in
 
 All 13 offline tests passed after adding browser startup coverage. A separate live check verified that the dashboard's browser launcher opened the OrangeHRM login page using installed Google Chrome when Playwright Chromium was missing. Earlier live iterations exposed the demo's counter whitespace and duplicate IDs already present in PIM. Those issues were corrected before the successful run. The earlier runs also saved fictional employees to the shared demo.
 
-All 16 offline tests passed after adding export recovery. A live read-only recovery detected a change from 83 to 84 PIM records, restarted the list read, verified the existing employee in the 84-row export, and signed out.
+All 17 offline tests passed. A browser test checked the live step, progress count, retry message, completion, and mobile layout using controlled step timing. A separate read-only OrangeHRM run detected a change from 83 to 84 PIM records, restarted the list read, verified the existing employee in the 84-row export, and signed out.
 
 ## Submission checklist
 

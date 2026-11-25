@@ -27,7 +27,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 1. Open [the local dashboard](http://127.0.0.1:8000).
 2. Enter the demo username and password from the assignment PDF. Use fictional names and an unused employee ID of up to 10 characters.
-3. Click **Run automation** and keep the tab open. Uvicorn's terminal logs show the completed steps.
+3. Click **Run automation** and keep the tab open. The **Workflow** panel shows the active browser step and the number of steps completed. If PIM changes during extraction, the panel shows when the export is retrying.
 4. Confirm the result displays the verified employee and the **Sign out** step. Use **Download employee CSV** for the full list. To preserve leading zeros in spreadsheet software, import the ID column as text.
 
 If the result says **Employee verified · export incomplete**, enter your demo credentials on that result page and click **Retry export**. The retry reads the PIM list for the employee already recorded in the run.

@@ -1,7 +1,6 @@
-"""FastAPI entry point for the dashboard and CSV download."""
-
 import logging
 import re
+from dataclasses import asdict
 from hmac import compare_digest
 from secrets import token_urlsafe
 from threading import Lock
@@ -9,7 +8,7 @@ from typing import Callable
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -18,7 +17,16 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .artifacts import employee_csv, load_result, save_result
 from .automation import run_automation
 from .config import ROOT, Settings
-from .models import FIELD_LIMITS, RunInput, RunResult, validate_form
+from .models import (
+    EXPORT_ONLY_STEPS,
+    FIELD_LIMITS,
+    WORKFLOW_STEPS,
+    ProgressCallback,
+    RunInput,
+    RunResult,
+    WorkflowProgress,
+    validate_form,
+)
 
 LOGGER = logging.getLogger("uvicorn.error.orangehrm")
 COOKIE_NAME = "hrm_dashboard"
@@ -29,11 +37,14 @@ PACKAGE = ROOT / "app"
 
 def create_app(
     settings: Settings | None = None,
-    runner: Callable[[RunInput, Settings], RunResult] = run_automation,
+    runner: Callable[
+        [RunInput, Settings, ProgressCallback], RunResult
+    ] = run_automation,
 ) -> FastAPI:
     """Create the dashboard with an injectable automation runner for tests."""
     config = settings or Settings.from_environment()
     run_lock = Lock()
+    active_progress: tuple[str, str, WorkflowProgress] | None = None
     app = FastAPI(
         title="OrangeHRM Automation", docs_url=None, redoc_url=None, openapi_url=None
     )
@@ -53,6 +64,10 @@ def create_app(
         **context: object,
     ) -> HTMLResponse:
         token = browser_token(request) or token_urlsafe(32)
+        result = context.get("result")
+        export_only = isinstance(result, RunResult) and (
+            result.export_only or tuple(result.steps) == EXPORT_ONLY_STEPS
+        )
         response = templates.TemplateResponse(
             request=request,
             name="index.html",
@@ -62,6 +77,10 @@ def create_app(
                 "errors": {},
                 "limits": FIELD_LIMITS,
                 "preview_rows": PREVIEW_ROWS,
+                "workflow_id": uuid4(),
+                "workflow_steps": WORKFLOW_STEPS,
+                "export_only_steps": EXPORT_ONLY_STEPS,
+                "visible_steps": EXPORT_ONLY_STEPS if export_only else WORKFLOW_STEPS,
                 **context,
             },
             status_code=status_code,
@@ -128,13 +147,20 @@ def create_app(
         if run_input is None:
             return dashboard(request, 422, values=values, errors=errors, **context)
 
+        workflow_id = request.headers.get("X-Workflow-Id", "")
+
+        def publish(progress: WorkflowProgress) -> None:
+            nonlocal active_progress
+            active_progress = owner, workflow_id, progress
+
         def execute() -> tuple[UUID | None, RunResult | None]:
+            nonlocal active_progress
             if not run_lock.acquire(blocking=False):
                 return None, None
             try:
                 run_id = uuid4()
                 LOGGER.info("Run %s started", run_id)
-                result = runner(run_input, config)
+                result = runner(run_input, config, publish)
                 try:
                     save_result(config.run_directory, owner, run_id, result)
                 except OSError:
@@ -146,6 +172,7 @@ def create_app(
                 LOGGER.info("Run %s completed (success=%s)", run_id, result.successful)
                 return run_id, result
             finally:
+                active_progress = None
                 run_lock.release()
 
         run_id, result = await run_in_threadpool(execute)
@@ -172,6 +199,16 @@ def create_app(
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
     def run_detail(request: Request, run_id: UUID) -> Response:
         return dashboard(request, result=result_for(request, run_id), run_id=run_id)
+
+    @app.get("/workflow-progress/{workflow_id}")
+    async def workflow_progress(request: Request, workflow_id: UUID) -> Response:
+        snapshot = active_progress
+        if snapshot is None or snapshot[:2] != (
+            browser_token(request),
+            str(workflow_id),
+        ):
+            return Response(status_code=404, headers={"Cache-Control": "no-store"})
+        return JSONResponse(asdict(snapshot[2]), headers={"Cache-Control": "no-store"})
 
     @app.get("/runs/{run_id}/employees.csv")
     def download(request: Request, run_id: UUID) -> Response:

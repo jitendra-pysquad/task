@@ -14,7 +14,14 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings
 from app.main import create_app
-from app.models import RunInput, RunResult
+from app.models import (
+    EXPORT_ONLY_STEPS,
+    WORKFLOW_STEPS,
+    ProgressCallback,
+    RunInput,
+    RunResult,
+    WorkflowProgress,
+)
 
 
 class DashboardTests(unittest.IsolatedAsyncioTestCase):
@@ -43,7 +50,9 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
             "employee_id": "000027",
         }
 
-    def fake_runner(self, request: RunInput, settings: Settings) -> RunResult:
+    def fake_runner(
+        self, request: RunInput, settings: Settings, on_progress: ProgressCallback
+    ) -> RunResult:
         self.calls.append(request)
         if request.employee.employee_id == "FAIL":
             return RunResult(
@@ -51,6 +60,7 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
                 errors=["That employee ID already exists. Use a unique ID."],
             )
         if request.employee.employee_id == "BLOCK":
+            on_progress(WorkflowProgress(("Open OrangeHRM",), active="Sign in"))
             self.blocked.set()
             self.release.wait(timeout=5)
         if request.employee.employee_id == "COUNT" and not request.export_only:
@@ -59,8 +69,9 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
                 errors=["The employee list count changed during extraction."],
             )
         return RunResult(
-            steps=["Open OrangeHRM", "Sign out"],
+            steps=list(EXPORT_ONLY_STEPS if request.export_only else WORKFLOW_STEPS),
             employee=request.employee,
+            export_only=request.export_only,
             columns=["Id", "First (& Middle) Name", "Last Name"],
             rows=[
                 [
@@ -143,11 +154,28 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(download.status_code, 404)
 
     async def test_concurrent_submission_reports_busy(self) -> None:
+        page = await self.client.get("/")
+        workflow = re.search(r'data-workflow-id="([^"]+)"', page.text)
+        assert workflow is not None
+        path = f"/workflow-progress/{workflow[1]}"
         pending = asyncio.create_task(
-            self.client.post("/runs", data={**self.fields, "employee_id": "BLOCK"})
+            self.client.post(
+                "/runs",
+                data={**self.fields, "employee_id": "BLOCK"},
+                headers={"X-Workflow-Id": workflow[1]},
+            )
         )
         try:
             self.assertTrue(await asyncio.to_thread(self.blocked.wait, 3))
+            progress = await self.client.get(path)
+            self.assertEqual(progress.headers["cache-control"], "no-store")
+            self.assertEqual(progress.json()["active"], "Sign in")
+            self.assertEqual(progress.json()["completed"], ["Open OrangeHRM"])
+            async with AsyncClient(
+                transport=ASGITransport(app=self.app), base_url="http://testserver"
+            ) as other:
+                await other.get("/")
+                self.assertEqual((await other.get(path)).status_code, 404)
             result = await self.client.post("/runs", data=self.fields)
             self.assertEqual(result.status_code, 409)
             self.assertIn("An automation is running.", result.text)
@@ -155,6 +183,7 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         finally:
             self.release.set()
             await pending
+        self.assertEqual((await self.client.get(path)).status_code, 404)
         self.assertEqual(
             (await self.client.post("/runs", data=self.fields)).status_code, 303
         )
@@ -180,6 +209,7 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         )
         result = await self.client.post(retry, data=self.fields, follow_redirects=True)
         self.assertIn("Automation completed successfully", result.text)
+        self.assertIn("5 of 5 steps complete", result.text)
         self.assertEqual(len(self.calls), 2)
         self.assertFalse(self.calls[0].export_only)
         self.assertTrue(self.calls[1].export_only)

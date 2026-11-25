@@ -51,13 +51,25 @@ input[aria-invalid=true] { border-color: var(--red); }
 .secondary:hover { background: #f4f6fa; }
 .button:disabled { opacity: .8; cursor: wait; }
 .form-actions, .result-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
-.progress { font-size: .875rem; }
-
-.workflow ol { list-style: none; margin: 0; padding: .85rem 1.6rem 1.25rem; }
-.workflow li { display: flex; align-items: center; min-height: 2.55rem; gap: .75rem; color: #364256; font-size: .95rem; }
-.workflow li::before { content: ""; width: .65rem; height: .65rem; flex-shrink: 0; margin-inline: .27rem; border: 1px solid #8a99a9; border-radius: 50%; }
-.workflow li.completed::before { background: #2e8054; border-color: #2e8054; }
-.workflow-empty { padding: 0 1.6rem 1rem; }
+.workflow-meter { padding: 1rem 1.6rem 0; }
+.workflow-meter progress { display: block; appearance: none; width: 100%; height: .5rem; border: 0; border-radius: 999px; background: #e9edf2; overflow: hidden; }
+.workflow-meter progress::-webkit-progress-bar { background: #e9edf2; }
+.workflow-meter progress::-webkit-progress-value { background: var(--action); border-radius: 999px; }
+.workflow-meter progress::-moz-progress-bar { background: var(--action); border-radius: 999px; }
+.workflow-meter span { display: block; margin-top: .45rem; color: var(--muted); font-size: .875rem; }
+.workflow ol { list-style: none; margin: 0; padding: .5rem 1.6rem 1.25rem; }
+.workflow li { display: flex; align-items: center; min-height: 2.5rem; gap: .65rem; padding: .2rem .45rem; color: var(--muted); font-size: .95rem; border-radius: .4rem; }
+.workflow li[hidden] { display: none; }
+.workflow li::before { display: grid; place-items: center; flex: 0 0 1.15rem; height: 1.15rem; border-radius: 50%; line-height: 1; }
+.workflow li:not(.completed, .active, .failed)::before { content: ""; border: 1px solid #a6b2c2; scale: .48; }
+.workflow li.completed { color: var(--green); }
+.workflow li.completed::before { content: "✓" / ""; color: var(--green); background: #eaf8ef; font-weight: 700; }
+.workflow li.active { color: var(--action); background: #fff2ea; font-weight: 700; }
+.workflow li.active::before { content: ""; border: 2px solid #eac0aa; border-top-color: var(--action); scale: .75; animation: workflow-spin .85s linear infinite; }
+.workflow li.failed { color: var(--red); }
+.workflow li.failed::before { content: "!" / ""; background: #fff0f1; font-weight: 700; }
+@keyframes workflow-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .workflow li.active::before { animation: none; } }
 
 .alert, .status { border: 1px solid; border-radius: .48rem; padding: .75rem .9rem; font-weight: 650; }
 .alert, .failure { background: #fff0f1; color: var(--red); border-color: #f1b9c2; }
@@ -93,5 +105,5 @@ tbody tr:last-child td { border-bottom: 0; }
   .mark { width: 1.9rem; height: 1.9rem; }
   .environment { font-size: .78rem; }
   .fields, .employee { grid-template-columns: minmax(0, 1fr); }
-  .card-header, form, .result-body, .workflow ol { padding-inline: 1rem; }
+  .card-header, form, .result-body, .workflow ol, .workflow-meter { padding-inline: 1rem; }
 }
