@@ -1,0 +1,1 @@
+"""Dashboard-driven employee automation."""
