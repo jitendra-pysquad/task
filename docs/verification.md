@@ -30,7 +30,7 @@ Verified on 25 November 2026 using Python 3.10.12 and installed Google Chrome in
 
 All 13 offline tests passed after adding browser startup coverage. A separate live check verified that the dashboard's browser launcher opened the OrangeHRM login page using installed Google Chrome when Playwright Chromium was missing. Earlier live iterations exposed the demo's counter whitespace and duplicate IDs already present in PIM. Those issues were corrected before the successful run. The earlier runs also saved fictional employees to the shared demo.
 
-All 17 offline tests passed. A browser test checked the live step, progress count, retry message, completion, and mobile layout using controlled step timing. A separate read-only OrangeHRM run detected a change from 83 to 84 PIM records, restarted the list read, verified the existing employee in the 84-row export, and signed out.
+All 20 offline tests passed. A browser test checked the live step, progress count, retry message, completion, and mobile layout using controlled step timing. A live sign-in rejection left the form visible, focused the cleared password, and highlighted the sign-in step. A browser test with a simulated duplicate-ID response verified the inline alert, preserved fields, and focus on the employee ID. A separate read-only OrangeHRM run detected a change from 83 to 84 PIM records, restarted the list read, verified the existing employee in the 84-row export, and signed out.
 
 ## Submission checklist
 

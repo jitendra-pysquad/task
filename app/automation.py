@@ -22,6 +22,14 @@ class WorkflowError(Exception):
     """An expected workflow failure with a dashboard-safe explanation."""
 
 
+class LoginRejected(WorkflowError):
+    """OrangeHRM displayed a sign-in error."""
+
+
+class DuplicateEmployeeId(WorkflowError):
+    """OrangeHRM rejected an employee ID already in use."""
+
+
 class EmployeeListChanged(WorkflowError):
     """The employee count changed while reading the shared demo."""
 
@@ -60,7 +68,7 @@ class OrangeHrmPage:
         error = self.page.locator(".oxd-alert-content-text")
         self.pim.or_(error).first.wait_for()
         if error.is_visible():
-            raise WorkflowError(
+            raise LoginRejected(
                 "Invalid username or password, Please check your credentials "
                 "and try again"
             )
@@ -82,10 +90,11 @@ class OrangeHrmPage:
         if field_error.first.is_visible() and not heading.is_visible():
             self.save_attempted = False
             if field_error.filter(has_text=re.compile(r"already exists", re.I)).count():
-                raise WorkflowError("That employee ID already exists. Use a unique ID.")
+                raise DuplicateEmployeeId(
+                    "That employee ID already exists. Use a unique ID."
+                )
             raise WorkflowError(
-                "Invalid username or password, Please check your credentials "
-                "and try again"
+                "OrangeHRM rejected the employee form. Check the details."
             )
         self.page.wait_for_url(PROFILE_URL)
 
@@ -320,6 +329,8 @@ def run_automation(
             finally:
                 browser.close()
     except WorkflowError as error:
+        result.login_rejected = isinstance(error, LoginRejected)
+        result.duplicate_employee_id = isinstance(error, DuplicateEmployeeId)
         LOGGER.warning("Step failed: %s (%s)", action, error)
         result.errors.insert(0, str(error))
     except (PlaywrightError, AssertionError) as error:

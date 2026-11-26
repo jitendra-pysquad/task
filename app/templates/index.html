@@ -28,11 +28,25 @@
         <input id="{{ name }}" name="{{ name }}" type="{{ kind }}" required
                maxlength="{{ limits[name] }}" autocomplete="{{ autocomplete }}"
                {% if kind != 'password' %}value="{{ values.get(name, '') }}"{% endif %}
-               {% if errors.get(name) %}aria-invalid="true" aria-describedby="{{ name }}-error"{% endif %}>
+               {% if errors.get(name) %}aria-invalid="true" aria-describedby="{{ name }}-error"
+               {% elif kind == 'password' and login_error %}aria-describedby="login-alert" autofocus
+               {% elif name == 'employee_id' and employee_id_error %}aria-invalid="true" aria-describedby="employee-id-alert" autofocus{% endif %}>
         {% if errors.get(name) %}
           <p class="field-error" id="{{ name }}-error">{{ errors[name] }}</p>
         {% endif %}
       </div>
+    {% endmacro %}
+
+    {% macro form_alert(alert_id, title, detail, fields) %}
+      {% if detail %}
+        <div class="form-alert" id="{{ alert_id }}" role="alert" data-clear-on="{{ fields }}">
+          <span class="form-alert-icon" aria-hidden="true">!</span>
+          <div>
+            <strong>{{ title }}</strong>
+            <p>{{ detail }}</p>
+          </div>
+        </div>
+      {% endif %}
     {% endmacro %}
 
     {% if message %}<p class="alert" role="alert">{{ message }}</p>{% endif %}
@@ -49,6 +63,7 @@
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <fieldset>
             <legend>OrangeHRM login</legend>
+            {{ form_alert("login-alert", "Sign-in failed", login_error, "username password") }}
             <div class="fields">
               {{ input("username", "Username", autocomplete="username") }}
               {{ input("password", "Password", "password", "current-password") }}
@@ -56,6 +71,7 @@
           </fieldset>
           <fieldset>
             <legend>Employee details</legend>
+            {{ form_alert("employee-id-alert", "Employee ID already in use", employee_id_error, "employee_id") }}
             <div class="fields">
               {{ input("first_name", "First name") }}
               {{ input("last_name", "Last name") }}
@@ -98,6 +114,7 @@
               <fieldset>
                 <legend>Retry employee list export</legend>
                 <p class="retry-hint">Enter your demo credentials to read the PIM list for the existing employee.</p>
+                {{ form_alert("login-alert", "Sign-in failed", login_error, "username password") }}
                 <div class="fields">
                   {{ input("username", "Username", autocomplete="username") }}
                   {{ input("password", "Password", "password", "current-password") }}
@@ -118,7 +135,7 @@
       </section>
       {% endif %}
 
-      {% set completed = result.steps if result else [] %}
+      {% set completed = workflow_result.steps if workflow_result else [] %}
       {% set completed_count = visible_steps | select('in', completed) | list | length %}
       <aside class="card workflow" aria-labelledby="workflow-title"
              data-workflow-id="{{ workflow_id }}"
@@ -126,7 +143,7 @@
         <div class="card-header">
           <h2 id="workflow-title">Workflow</h2>
           <p id="workflow-status" role="status" aria-atomic="true">
-            {% if result and result.successful %}Workflow complete{% elif result %}Run finished with errors{% else %}Ready to run{% endif %}
+            {% if login_error %}Stopped at sign-in{% elif employee_id_error %}Stopped at Add employee{% elif workflow_result and workflow_result.successful %}Workflow complete{% elif workflow_result %}Run finished with errors{% else %}Ready to run{% endif %}
           </p>
         </div>
         <div class="workflow-meter">
@@ -139,7 +156,7 @@
           <li data-step="{{ step }}" data-active-text="{{ active_text }}"
               {% if step not in export_only_steps %}data-create-only{% endif %}
               {% if step not in visible_steps %}hidden{% endif %}
-              {% if step in completed %}class="completed"{% elif result and step == result.failed_step %}class="failed"{% endif %}>{{ step }}</li>
+              {% if step in completed %}class="completed"{% elif workflow_result and step == workflow_result.failed_step %}class="failed"{% endif %}>{{ step }}</li>
           {% endfor %}
         </ol>
       </aside>

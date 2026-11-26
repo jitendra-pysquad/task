@@ -10,6 +10,25 @@ function initializeWorkflow() {
   const count = panel.querySelector("#workflow-count");
   const status = panel.querySelector("#workflow-status");
   const exportOnly = form.hasAttribute("data-export-only");
+  const priorAlert = form.querySelector("[data-clear-on]");
+
+  function clearPriorAlert() {
+    if (!priorAlert?.isConnected) return;
+    for (const input of form.querySelectorAll("[aria-describedby]")) {
+      if (input.getAttribute("aria-describedby") !== priorAlert.id) continue;
+      input.removeAttribute("aria-describedby");
+      input.removeAttribute("aria-invalid");
+      input.removeAttribute("autofocus");
+    }
+    priorAlert.remove();
+  }
+
+  if (priorAlert) {
+    const fields = priorAlert.dataset.clearOn.split(" ");
+    form.addEventListener("input", (event) => {
+      if (fields.includes(event.target.name)) clearPriorAlert();
+    });
+  }
 
   function showProgress({ completed, active, failed, message }) {
     let total = 0;
@@ -49,6 +68,7 @@ function initializeWorkflow() {
     event.preventDefault();
     if (button.disabled) return;
     const data = new URLSearchParams(new FormData(form));
+    clearPriorAlert();
     button.disabled = true;
     button.textContent = "Running automation…";
     showProgress({ completed: [], message: "Starting browser…" });
@@ -82,7 +102,12 @@ function initializeWorkflow() {
       if (!main) throw new Error("Missing dashboard response");
       document.querySelector("main").replaceWith(main);
       initializeWorkflow();
-      main.querySelector('[role="alert"]')?.scrollIntoView({ block: "nearest" });
+      const focusTarget = main.querySelector("input[autofocus]");
+      if (focusTarget) {
+        focusTarget.focus();
+      } else {
+        main.querySelector('[role="alert"]')?.scrollIntoView({ block: "nearest" });
+      }
     } catch {
       status.textContent =
         "Could not confirm the run result. Check OrangeHRM before starting again.";

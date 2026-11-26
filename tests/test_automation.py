@@ -3,7 +3,12 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from app.automation import EmployeeListChanged, OrangeHrmPage, run_automation
+from app.automation import (
+    DuplicateEmployeeId,
+    EmployeeListChanged,
+    OrangeHrmPage,
+    run_automation,
+)
 from app.config import Settings
 from app.models import Employee, RunInput
 
@@ -74,3 +79,22 @@ class ExportRecoveryTests(unittest.TestCase):
         self.assertEqual(sign_out.failed, "Extract employee list")
         self.assertEqual(result.failed_step, "Extract employee list")
         self.assertIn("Sign out", updates[-1].completed)
+
+    def test_duplicate_id_is_reported_as_a_correctable_add_employee_error(self) -> None:
+        request = RunInput("user", "password", self.employee)
+        settings = Settings()
+        with (
+            patch("app.automation.sync_playwright"),
+            patch("app.automation.launch_browser"),
+            patch("app.automation.OrangeHrmPage") as browser_page,
+            self.assertLogs("uvicorn.error.orangehrm"),
+        ):
+            site = browser_page.return_value
+            site.save_attempted = False
+            site.add_employee.side_effect = DuplicateEmployeeId("ID already in use.")
+            result = run_automation(request, settings)
+        self.assertTrue(result.duplicate_employee_id)
+        self.assertEqual(result.failed_step, "Add employee")
+        self.assertIsNone(result.employee)
+        site.verify_employee.assert_not_called()
+        site.logout.assert_called_once()

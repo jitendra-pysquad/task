@@ -54,10 +54,25 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self, request: RunInput, settings: Settings, on_progress: ProgressCallback
     ) -> RunResult:
         self.calls.append(request)
+        if request.password == "rejected-password":
+            return RunResult(
+                steps=["Open OrangeHRM"],
+                errors=["Invalid username or password"],
+                failed_step="Sign in",
+                export_only=request.export_only,
+                login_rejected=True,
+            )
         if request.employee.employee_id == "FAIL":
             return RunResult(
                 steps=["Open OrangeHRM", "Sign in", "Open PIM"],
+                errors=["OrangeHRM rejected the employee form."],
+            )
+        if request.employee.employee_id == "DUP":
+            return RunResult(
+                steps=["Open OrangeHRM", "Sign in", "Open PIM", "Sign out"],
                 errors=["That employee ID already exists. Use a unique ID."],
+                failed_step="Add employee",
+                duplicate_employee_id=True,
             )
         if request.employee.employee_id == "BLOCK":
             on_progress(WorkflowProgress(("Open OrangeHRM",), active="Sign in"))
@@ -111,6 +126,27 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
             json.loads(snapshot)["result"]["employee"]["employee_id"], "000027"
         )
 
+    async def test_duplicate_employee_id_keeps_form_and_focuses_id(self) -> None:
+        page = await self.client.post(
+            "/runs", data={**self.fields, "employee_id": "DUP"}
+        )
+        self.assertEqual(page.status_code, 422)
+        self.assertIn('id="employee-id-alert" role="alert"', page.text)
+        self.assertIn("Employee ID already in use", page.text)
+        self.assertNotIn("Run result", page.text)
+        for field in ("username", "first_name", "last_name"):
+            self.assertIn(f'value="{self.fields[field]}"', page.text)
+        self.assertIn('value="DUP"', page.text)
+        self.assertNotIn(self.fields["password"], page.text)
+        self.assertIn('aria-describedby="employee-id-alert" autofocus', page.text)
+        self.assertIn('class="failed">Add employee', page.text)
+        self.assertIn('class="completed">Sign out', page.text)
+
+        snapshot = next(self.directory.glob("*.json")).read_text()
+        self.assertNotIn(self.fields["password"], snapshot)
+        self.assertNotIn(self.fields["username"], snapshot)
+        self.assertIsNone(json.loads(snapshot)["result"]["employee"])
+
     async def test_results_and_csv_are_bound_to_the_browser(self) -> None:
         run = (await self.client.post("/runs", data=self.fields)).headers["location"]
         async with AsyncClient(
@@ -131,6 +167,23 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(self.fields["password"], page.text)
         self.assertEqual(self.calls, [])
 
+    async def test_rejected_login_keeps_form_and_failed_step(self) -> None:
+        page = await self.client.post(
+            "/runs", data={**self.fields, "password": "rejected-password"}
+        )
+        self.assertEqual(page.status_code, 422)
+        self.assertIn('id="login-alert" role="alert"', page.text)
+        self.assertIn("Configure run", page.text)
+        self.assertNotIn("Run result", page.text)
+        for field in ("username", "first_name", "last_name", "employee_id"):
+            self.assertIn(f'value="{self.fields[field]}"', page.text)
+        self.assertNotIn("rejected-password", page.text)
+        self.assertIn('aria-describedby="login-alert" autofocus', page.text)
+        self.assertIn('class="completed">Open OrangeHRM', page.text)
+        self.assertIn('class="failed">Sign in', page.text)
+        self.assertIn("1 of 7 steps complete", page.text)
+        self.assertEqual(len(self.calls), 1)
+
     async def test_csrf_rejected_before_automation(self) -> None:
         page = await self.client.post("/runs", data={**self.fields, "csrf": "é"})
         self.assertEqual(page.status_code, 403)
@@ -148,7 +201,7 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
             "/runs", data={**self.fields, "employee_id": "FAIL"}, follow_redirects=True
         )
         self.assertIn("Automation failed", page.text)
-        self.assertIn("That employee ID already exists.", page.text)
+        self.assertIn("OrangeHRM rejected the employee form.", page.text)
         self.assertNotIn("Download employee CSV", page.text)
         download = await self.client.get(f"{page.url}/employees.csv")
         self.assertEqual(download.status_code, 404)
@@ -207,10 +260,18 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
             ).status_code,
             403,
         )
+        rejected = await self.client.post(
+            retry, data={**self.fields, "password": "rejected-password"}
+        )
+        self.assertEqual(rejected.status_code, 422)
+        self.assertIn('id="login-alert" role="alert"', rejected.text)
+        self.assertIn("Verified employee", rejected.text)
+        self.assertIn("1 of 5 steps complete", rejected.text)
+        self.assertIn("Retry export", rejected.text)
         result = await self.client.post(retry, data=self.fields, follow_redirects=True)
         self.assertIn("Automation completed successfully", result.text)
         self.assertIn("5 of 5 steps complete", result.text)
-        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(len(self.calls), 3)
         self.assertFalse(self.calls[0].export_only)
         self.assertTrue(self.calls[1].export_only)
         self.assertEqual(self.calls[0].employee, self.calls[1].employee)

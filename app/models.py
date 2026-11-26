@@ -68,6 +68,8 @@ class RunResult:
     errors: list[str] = field(default_factory=list)
     failed_step: str | None = None
     export_only: bool = False
+    login_rejected: bool = False
+    duplicate_employee_id: bool = False
 
     @property
     def successful(self) -> bool:

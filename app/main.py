@@ -64,9 +64,10 @@ def create_app(
         **context: object,
     ) -> HTMLResponse:
         token = browser_token(request) or token_urlsafe(32)
-        result = context.get("result")
-        export_only = isinstance(result, RunResult) and (
-            result.export_only or tuple(result.steps) == EXPORT_ONLY_STEPS
+        workflow_result = context.get("workflow_result", context.get("result"))
+        export_only = isinstance(workflow_result, RunResult) and (
+            workflow_result.export_only
+            or tuple(workflow_result.steps) == EXPORT_ONLY_STEPS
         )
         response = templates.TemplateResponse(
             request=request,
@@ -81,6 +82,7 @@ def create_app(
                 "workflow_steps": WORKFLOW_STEPS,
                 "export_only_steps": EXPORT_ONLY_STEPS,
                 "visible_steps": EXPORT_ONLY_STEPS if export_only else WORKFLOW_STEPS,
+                "workflow_result": workflow_result,
                 **context,
             },
             status_code=status_code,
@@ -182,6 +184,20 @@ def create_app(
                 409,
                 values=values,
                 message="An automation is running. Try again after it finishes.",
+                **context,
+            )
+        if result.login_rejected or result.duplicate_employee_id:
+            return dashboard(
+                request,
+                422,
+                values=values,
+                login_error=result.errors[0] if result.login_rejected else None,
+                employee_id_error=(
+                    "Use a unique ID and try again."
+                    if result.duplicate_employee_id
+                    else None
+                ),
+                workflow_result=result,
                 **context,
             )
         if run_id is None:
