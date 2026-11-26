@@ -13,3 +13,6 @@ runtime/
 .DS_Store
 .idea/
 .vscode/
+/.agents/
+/.aws/
+/.codex/

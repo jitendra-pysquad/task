@@ -51,8 +51,9 @@ Credentials are entered in the dashboard for each run. The optional environment 
 
 ## Test and capture evidence
 
+The setup command above installs the dependencies for both the app and tests.
+
 ```bash
-python -m pip install -r requirements-dev.txt
 python -m pip check
 python -m compileall -q app tests
 python -m unittest discover -s tests -v
@@ -93,7 +94,6 @@ evidence/             Screenshots and CSV from a live run
 .env.example
 .gitignore
 requirements.txt
-requirements-dev.txt
 README.md
 ```
 

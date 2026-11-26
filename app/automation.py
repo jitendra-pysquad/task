@@ -1,5 +1,3 @@
-"""Playwright workflow for the OrangeHRM public demo."""
-
 import logging
 import re
 from typing import Callable
