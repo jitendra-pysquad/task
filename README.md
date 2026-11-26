@@ -87,9 +87,6 @@ tests/
   test_dashboard.py   Route and workflow boundary tests
   test_models.py      Validation and CSV edge-case tests
   live_dashboard.py   Opt-in live browser test and evidence capture
-docs/
-  verification.md     PDF checklist, results, and submission checklist
-  interview.md        Implementation questions and answers
 evidence/             Screenshots and CSV from a live run
 .env.example
 .gitignore
@@ -109,5 +106,3 @@ README.md
 - The shared demo can change while a list is being read. If the reported count changes, the app restarts the list read from page one, up to three attempts total. If it still cannot complete the export, the verified employee remains on the result page with a read-only retry option. Demo downtime, resets, and UI changes can also affect a run.
 - Employee creation is a remote action. If the response is lost after Save, the app cannot safely determine whether to repeat it. Search PIM for the ID first. Use a new ID for each planned run.
 - The dashboard is intended for one local Uvicorn worker. Result files stay on disk until you clear `runtime/runs/`. Browser access to a run ends when its session cookie is cleared.
-
-See the [verification and submission checklist](docs/verification.md) and [interview questions](docs/interview.md).
