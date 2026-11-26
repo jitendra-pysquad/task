@@ -25,6 +25,8 @@ The dashboard can use an existing Google Chrome installation. To install the Pla
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
+Add `--no-access-log` to hide the frequent progress-request lines in the terminal. The automation still logs its steps, warnings, and errors.
+
 1. Open [the local dashboard](http://127.0.0.1:8000).
 2. Enter the demo username and password from the assignment PDF. Use fictional names and an unused employee ID of up to 10 characters.
 3. Click **Run automation** and keep the tab open. The **Workflow** panel shows the active browser step and the number of steps completed. If PIM changes during extraction, the panel shows when the export is retrying.
@@ -43,7 +45,7 @@ set +a
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `ORANGEHRM_TIMEOUT_MS` | `20000` | Per-operation browser timeout in milliseconds. Accepts 1000–120000. |
+| `ORANGEHRM_TIMEOUT_MS` | `20000` | Base browser timeout in milliseconds. Accepts 1000–120000. Sign-in confirmation can take up to twice this time. |
 | `ORANGEHRM_HEADLESS` | `true` | Set to `false` to watch the OrangeHRM browser locally. |
 | `ORANGEHRM_BROWSER_CHANNEL` | Automatic | Tries Playwright Chromium, then installed Google Chrome if Chromium is missing. Set to `chrome` to select Google Chrome directly. |
 
@@ -97,7 +99,7 @@ README.md
 ## Implementation decisions
 
 - **Browser lifecycle.** Playwright runs in a thread so FastAPI can serve the dashboard during a run. Every run has a fresh browser context. After signing in, the workflow attempts sign-out even if a later step fails. The context and browser close in cleanup blocks.
-- **Readiness and verification.** Actions wait on UI elements and page transitions. After Save, the workflow reads the profile’s three fields and checks them against the request. It then reads rendered PIM columns and pages, checks the displayed total, and verifies that the new employee is present in the extraction.
+- **Readiness and verification.** Actions wait on UI elements and page transitions. The browser requests English UI labels so the shared demo's default language can vary. After Save, the workflow reads the profile’s three fields and checks them against the request. It then reads rendered PIM columns and pages, checks the displayed total, and verifies that the new employee is present in the extraction.
 - **Run state.** A single server process allows one active run at a time. The POST redirects to a result URL so refreshing cannot resubmit the form. The browser’s random cookie scopes access to the run and its CSV. Result snapshots under `runtime/runs/` are written atomically.
 - **Data handling.** The submitted credentials are used in memory for sign-in. Snapshots, CSVs, URLs, and application step logs omit them. HTML output is escaped and CSV cells that start like spreadsheet formulas are neutralized. The target URL is fixed in code.
 

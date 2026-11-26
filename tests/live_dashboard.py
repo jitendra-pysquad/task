@@ -47,12 +47,17 @@ def main() -> None:
 
         page.get_by_role("button", name="Run automation").click(no_wait_after=True)
         result = page.locator(".result-body")
-        result.wait_for(timeout=360_000)
-        if result.get_by_role("alert").count():
+        inline_error = page.locator(".form-alert")
+        result.or_(inline_error).first.wait_for(timeout=360_000)
+        if inline_error.is_visible() or result.get_by_role("alert").count():
             page.screenshot(
                 path=options.output / "dashboard-failure.png", full_page=True
             )
-            raise RuntimeError(result.inner_text())
+            raise RuntimeError(
+                inline_error.inner_text()
+                if inline_error.is_visible()
+                else result.inner_text()
+            )
         expect(result.get_by_role("status")).to_have_text(
             "Automation completed successfully"
         )

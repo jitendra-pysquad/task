@@ -1,19 +1,39 @@
 import logging
 import re
 from typing import Callable
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
-from playwright.sync_api import Browser, Page, Playwright, expect, sync_playwright
+from playwright.sync_api import (
+    Browser,
+    Page,
+    Playwright,
+    Route,
+    expect,
+    sync_playwright,
+)
 from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from .config import DEMO_URL, Settings
 from .models import Employee, ProgressCallback, RunInput, RunResult, WorkflowProgress
 
 LOGGER = logging.getLogger("uvicorn.error.orangehrm")
 PROFILE_URL = re.compile(r"/pim/viewPersonalDetails/empNumber/\d+(?:[/?#]|$)")
+EMPLOYEE_LIST_URL = re.compile(r"/pim/viewEmployeeList(?:[/?#]|$)")
 RECORDS_FOUND = re.compile(r"^\((\d+)\) Records? Found$")
 EMPLOYEE_COLUMNS = ("Id", "First (& Middle) Name", "Last Name")
 EXPORT_ATTEMPTS = 3
+TRANSLATIONS_URL = re.compile(
+    rf"^{re.escape(DEMO_URL)}/web/index\.php/core/i18n/messages(?:\?|$)"
+)
+
+
+def request_english_ui(route: Route) -> None:
+    """Use OrangeHRM's locale parameter for this browser's UI labels."""
+    url = urlsplit(route.request.url)
+    query = dict(parse_qsl(url.query, keep_blank_values=True))
+    query["locale"] = "en_US"
+    route.continue_(url=url._replace(query=urlencode(query)).geturl())
 
 
 class WorkflowError(Exception):
@@ -39,7 +59,8 @@ class OrangeHrmPage:
         self.page = page
         self.timeout_ms = timeout_ms
         page.set_default_timeout(timeout_ms)
-        self.pim = page.get_by_role("link", name="PIM", exact=True)
+        page.route(TRANSLATIONS_URL, request_english_ui)
+        self.pim = page.locator('a[href$="/pim/viewPimModule"]')
         self.user_menu = page.locator(".oxd-userdropdown-tab")
         self.username = page.locator('input[name="username"]')
         self.first_name = page.locator('input[name="firstName"]')
@@ -60,11 +81,23 @@ class OrangeHrmPage:
         self.username.wait_for()
 
     def login(self, request: RunInput) -> None:
-        self.username.fill(request.username)
-        self.page.locator('input[name="password"]').fill(request.password)
-        self.page.get_by_role("button", name="Login", exact=True).click()
-        error = self.page.locator(".oxd-alert-content-text")
-        self.pim.or_(error).first.wait_for()
+        pending = "preparing the login form"
+        form = self.page.locator("form").filter(has=self.username)
+        error = self.page.locator(".oxd-alert-content-text").filter(visible=True)
+        signed_in = self.user_menu.or_(self.pim).filter(visible=True)
+        try:
+            self.username.fill(request.username)
+            self.page.locator('input[name="password"]').fill(request.password)
+            pending = "submitting the login form"
+            form.locator('button[type="submit"]').click(no_wait_after=True)
+            pending = "waiting for the sign-in response"
+            # Give the post-login redirect and UI render time to finish after one click.
+            signed_in.or_(error).first.wait_for(timeout=self.timeout_ms * 2)
+        except PlaywrightTimeoutError as exc:
+            LOGGER.warning("OrangeHRM timed out while %s", pending)
+            raise WorkflowError(
+                "OrangeHRM took too long to respond during sign-in. Try again."
+            ) from exc
         if error.is_visible():
             raise LoginRejected(
                 "Invalid username or password, Please check your credentials "
@@ -72,8 +105,13 @@ class OrangeHrmPage:
             )
 
     def open_pim(self) -> None:
-        self.pim.click()
-        self.page.get_by_role("link", name="Employee List", exact=True).wait_for()
+        try:
+            self.pim.click(no_wait_after=True)
+            self.page.wait_for_url(EMPLOYEE_LIST_URL, wait_until="commit")
+        except PlaywrightTimeoutError as exc:
+            raise WorkflowError(
+                "OrangeHRM did not open the PIM employee list in time. Try again."
+            ) from exc
 
     def add_employee(self, employee: Employee) -> None:
         self.page.get_by_role("link", name="Add Employee", exact=True).click()

@@ -3,14 +3,68 @@
 import unittest
 from unittest.mock import Mock, patch
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
 from app.automation import (
+    EMPLOYEE_LIST_URL,
     DuplicateEmployeeId,
     EmployeeListChanged,
     OrangeHrmPage,
+    WorkflowError,
+    request_english_ui,
     run_automation,
 )
 from app.config import Settings
 from app.models import Employee, RunInput
+
+
+class SignInTests(unittest.TestCase):
+    def test_browser_requests_english_without_losing_other_parameters(self) -> None:
+        route = Mock()
+        base_url = "https://opensource-demo.orangehrmlive.com/web/index.php"
+        route.request.url = f"{base_url}/core/i18n/messages?locale=fr_FR&version=1"
+        request_english_ui(route)
+        route.continue_.assert_called_once_with(
+            url=f"{base_url}/core/i18n/messages?locale=en_US&version=1"
+        )
+
+    def test_slow_sign_in_submits_once_and_waits_for_a_visible_outcome(self) -> None:
+        page = Mock()
+        site = OrangeHrmPage(page, timeout_ms=20_000)
+        outcome = site.user_menu.or_.return_value.filter.return_value.or_.return_value
+        outcome.first.wait_for.side_effect = PlaywrightTimeoutError("Timed out")
+        request = RunInput("user", "test-password", Employee("Riley", "Demo", "9001"))
+
+        with (
+            self.assertLogs("uvicorn.error.orangehrm") as logs,
+            self.assertRaisesRegex(WorkflowError, "took too long to respond"),
+        ):
+            site.login(request)
+
+        page.locator.return_value.filter.return_value.locator.assert_called_once_with(
+            'button[type="submit"]'
+        )
+        submit = page.locator.return_value.filter.return_value.locator.return_value
+        submit.click.assert_called_once_with(no_wait_after=True)
+        outcome.first.wait_for.assert_called_once_with(timeout=40_000)
+        self.assertIn("waiting for the sign-in response", logs.output[0])
+        self.assertNotIn("test-password", logs.output[0])
+
+
+class PimNavigationTests(unittest.TestCase):
+    def test_pim_navigation_uses_the_link_destination_instead_of_its_label(
+        self,
+    ) -> None:
+        page = Mock()
+        site = OrangeHrmPage(page, timeout_ms=20_000)
+
+        site.open_pim()
+
+        page.locator.assert_any_call('a[href$="/pim/viewPimModule"]')
+        site.pim.click.assert_called_once_with(no_wait_after=True)
+        page.wait_for_url.assert_called_once_with(
+            EMPLOYEE_LIST_URL, wait_until="commit"
+        )
 
 
 class ExportRecoveryTests(unittest.TestCase):

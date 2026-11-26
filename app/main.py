@@ -186,12 +186,13 @@ def create_app(
                 message="An automation is running. Try again after it finishes.",
                 **context,
             )
-        if result.login_rejected or result.duplicate_employee_id:
+        sign_in_failed = result.failed_step == "Sign in"
+        if sign_in_failed or result.duplicate_employee_id:
             return dashboard(
                 request,
                 422,
                 values=values,
-                login_error=result.errors[0] if result.login_rejected else None,
+                login_error=result.errors[0] if sign_in_failed else None,
                 employee_id_error=(
                     "Use a unique ID and try again."
                     if result.duplicate_employee_id

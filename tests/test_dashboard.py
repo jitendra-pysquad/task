@@ -62,6 +62,14 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
                 export_only=request.export_only,
                 login_rejected=True,
             )
+        if request.password == "timeout-password":
+            return RunResult(
+                steps=["Open OrangeHRM"],
+                errors=[
+                    "OrangeHRM took too long to respond during sign-in. Try again."
+                ],
+                failed_step="Sign in",
+            )
         if request.employee.employee_id == "FAIL":
             return RunResult(
                 steps=["Open OrangeHRM", "Sign in", "Open PIM"],
@@ -188,6 +196,17 @@ class DashboardTests(unittest.IsolatedAsyncioTestCase):
         page = await self.client.post("/runs", data={**self.fields, "csrf": "é"})
         self.assertEqual(page.status_code, 403)
         self.assertEqual(self.calls, [])
+
+    async def test_sign_in_timeout_keeps_form_with_a_timing_message(self) -> None:
+        page = await self.client.post(
+            "/runs", data={**self.fields, "password": "timeout-password"}
+        )
+        self.assertEqual(page.status_code, 422)
+        self.assertIn("OrangeHRM took too long to respond during sign-in.", page.text)
+        self.assertNotIn("Invalid username or password", page.text)
+        self.assertNotIn("timeout-password", page.text)
+        self.assertIn('aria-describedby="login-alert" autofocus', page.text)
+        self.assertIn('class="failed">Sign in', page.text)
 
     async def test_oversized_form_rejected_before_automation(self) -> None:
         page = await self.client.post(
